@@ -192,6 +192,7 @@ export default function App() {
 
     const newQueue = runnerQueue.slice(1);
     
+    console.log('Starting with record:', newRecord); // デバッグ用
     await saveRecords([newRecord]);
     await saveQueue(newQueue);
   };
@@ -493,7 +494,12 @@ export default function App() {
               
               <button
                 onClick={handleLap}
-                disabled={records.length === 0 || runnerQueue.length === 0 || (records[records.length - 1]?.endTime !== null) || lapCooldown > 0}
+                disabled={
+                  records.length === 0 || 
+                  runnerQueue.length === 0 || 
+                  (records.length > 0 && records[records.length - 1] && records[records.length - 1].endTime !== null && records[records.length - 1].endTime !== undefined) || 
+                  lapCooldown > 0
+                }
                 className="flex items-center gap-2 px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition"
               >
                 <Timer size={20} />
@@ -502,7 +508,10 @@ export default function App() {
               
               <button
                 onClick={handleGoal}
-                disabled={records.length === 0 || (records[records.length - 1]?.endTime !== null)}
+                disabled={
+                  records.length === 0 || 
+                  (records.length > 0 && records[records.length - 1] && records[records.length - 1].endTime !== null && records[records.length - 1].endTime !== undefined)
+                }
                 className="flex items-center gap-2 px-6 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition"
               >
                 <Flag size={20} />
