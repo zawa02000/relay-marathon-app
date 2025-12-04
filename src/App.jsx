@@ -1,17 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { Play, Flag, Timer, Download, UserPlus, X, ChevronUp, ChevronDown } from 'lucide-react';
+import { initializeApp } from 'firebase/app';
+import { getDatabase, ref, onValue, set, get } from 'firebase/database';
 
-// ブラウザのlocalStorageを使った簡易的なストレージ実装
-const storage = {
-  get: (key) => {
-    const value = localStorage.getItem(key);
-    return value ? { value } : null;
-  },
-  set: (key, value) => {
-    localStorage.setItem(key, value);
-    return { key, value };
-  }
+// Firebase設定
+const firebaseConfig = {
+  apiKey: "AIzaSyBN1vI5spCjUogzhwkOJIyChAAYQH6u6Cc",
+  authDomain: "relay-marathon-app-1da47.firebaseapp.com",
+  databaseURL: "https://relay-marathon-app-1da47-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "relay-marathon-app-1da47",
+  storageBucket: "relay-marathon-app-1da47.firebasestorage.app",
+  messagingSenderId: "238551878474",
+  appId: "1:238551878474:web:23d174de23749980f20fb3"
 };
+
+// Firebaseの初期化
+const app = initializeApp(firebaseConfig);
+const database = getDatabase(app);
 
 export default function App() {
   const [records, setRecords] = useState([]);
@@ -25,9 +30,46 @@ export default function App() {
   const [deleteIndex, setDeleteIndex] = useState(null);
   const [lapCooldown, setLapCooldown] = useState(0);
 
-  // 初期化
+  // リアルタイム同期の設定
   useEffect(() => {
-    loadData();
+    // パスワードの監視
+    const passwordRef = ref(database, 'password');
+    const unsubscribePassword = onValue(passwordRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setPassword(data);
+      }
+      setLoading(false);
+    });
+
+    // 記録の監視
+    const recordsRef = ref(database, 'records');
+    const unsubscribeRecords = onValue(recordsRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setRecords(data);
+      } else {
+        setRecords([]);
+      }
+    });
+
+    // 走者キューの監視
+    const queueRef = ref(database, 'runnerQueue');
+    const unsubscribeQueue = onValue(queueRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setRunnerQueue(data);
+      } else {
+        setRunnerQueue([]);
+      }
+    });
+
+    // クリーンアップ
+    return () => {
+      unsubscribePassword();
+      unsubscribeRecords();
+      unsubscribeQueue();
+    };
   }, []);
 
   // ラップクールダウンタイマー
@@ -38,60 +80,31 @@ export default function App() {
     }
   }, [lapCooldown]);
 
-  const loadData = () => {
+  const saveRecords = async (newRecords) => {
     try {
-      // パスワードの読み込み
-      const pwResult = storage.get('relay-password');
-      if (pwResult && pwResult.value) {
-        setPassword(pwResult.value);
-      }
-
-      // 記録の読み込み
-      const recordsResult = storage.get('relay-records');
-      if (recordsResult && recordsResult.value) {
-        setRecords(JSON.parse(recordsResult.value));
-      }
-
-      // 走者キューの読み込み
-      const queueResult = storage.get('relay-queue');
-      if (queueResult && queueResult.value) {
-        setRunnerQueue(JSON.parse(queueResult.value));
-      }
-    } catch (error) {
-      console.log('初回起動またはデータなし');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const saveRecords = (newRecords) => {
-    try {
-      storage.set('relay-records', JSON.stringify(newRecords));
-      setRecords(newRecords);
+      await set(ref(database, 'records'), newRecords);
     } catch (error) {
       console.error('保存エラー:', error);
       alert('データの保存に失敗しました');
     }
   };
 
-  const saveQueue = (newQueue) => {
+  const saveQueue = async (newQueue) => {
     try {
-      storage.set('relay-queue', JSON.stringify(newQueue));
-      setRunnerQueue(newQueue);
+      await set(ref(database, 'runnerQueue'), newQueue);
     } catch (error) {
       console.error('保存エラー:', error);
       alert('データの保存に失敗しました');
     }
   };
 
-  const handleSetPassword = () => {
+  const handleSetPassword = async () => {
     if (!passwordInput.trim()) {
       alert('パスワードを入力してください');
       return;
     }
     try {
-      storage.set('relay-password', passwordInput);
-      setPassword(passwordInput);
+      await set(ref(database, 'password'), passwordInput);
       setIsAuthenticated(true);
       alert('パスワードが設定されました！このパスワードを仲間と共有してください。');
     } catch (error) {
@@ -122,35 +135,35 @@ export default function App() {
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  const handleAddRunner = () => {
+  const handleAddRunner = async () => {
     if (!newRunner.trim()) {
       alert('走者名を入力してください');
       return;
     }
-    saveQueue([...runnerQueue, newRunner.trim()]);
+    await saveQueue([...runnerQueue, newRunner.trim()]);
     setNewRunner('');
   };
 
-  const handleRemoveRunner = (index) => {
+  const handleRemoveRunner = async (index) => {
     const newQueue = runnerQueue.filter((_, i) => i !== index);
-    saveQueue(newQueue);
+    await saveQueue(newQueue);
   };
 
-  const moveRunnerUp = (index) => {
+  const moveRunnerUp = async (index) => {
     if (index === 0) return;
     const newQueue = [...runnerQueue];
     [newQueue[index - 1], newQueue[index]] = [newQueue[index], newQueue[index - 1]];
-    saveQueue(newQueue);
+    await saveQueue(newQueue);
   };
 
-  const moveRunnerDown = (index) => {
+  const moveRunnerDown = async (index) => {
     if (index === runnerQueue.length - 1) return;
     const newQueue = [...runnerQueue];
     [newQueue[index], newQueue[index + 1]] = [newQueue[index + 1], newQueue[index]];
-    saveQueue(newQueue);
+    await saveQueue(newQueue);
   };
 
-  const handleStart = () => {
+  const handleStart = async () => {
     if (runnerQueue.length === 0) {
       alert('走者を追加してください');
       return;
@@ -167,11 +180,11 @@ export default function App() {
 
     const newQueue = runnerQueue.slice(1);
     
-    saveRecords([newRecord]);
-    saveQueue(newQueue);
+    await saveRecords([newRecord]);
+    await saveQueue(newQueue);
   };
 
-  const handleLap = () => {
+  const handleLap = async () => {
     if (lapCooldown > 0) {
       alert(`あと${lapCooldown}秒待ってください`);
       return;
@@ -206,13 +219,13 @@ export default function App() {
     
     const newQueue = runnerQueue.slice(1);
     
-    saveRecords(updatedRecords);
-    saveQueue(newQueue);
+    await saveRecords(updatedRecords);
+    await saveQueue(newQueue);
     
     setLapCooldown(10);
   };
 
-  const handleGoal = () => {
+  const handleGoal = async () => {
     if (records.length === 0) {
       alert('記録がありません');
       return;
@@ -225,17 +238,17 @@ export default function App() {
     lastRecord.endTime = now;
     lastRecord.lapTime = calculateLapTime(lastRecord.startTime, now);
 
-    saveRecords(updatedRecords);
+    await saveRecords(updatedRecords);
   };
 
   const handleDelete = (index) => {
     setDeleteIndex(index);
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (deleteIndex !== null) {
       const updatedRecords = records.filter((_, i) => i !== deleteIndex);
-      saveRecords(updatedRecords);
+      await saveRecords(updatedRecords);
       setDeleteIndex(null);
     }
   };
@@ -244,8 +257,8 @@ export default function App() {
     setShowResetConfirm(true);
   };
 
-  const confirmReset = () => {
-    saveRecords([]);
+  const confirmReset = async () => {
+    await saveRecords([]);
     setShowResetConfirm(false);
   };
 
@@ -555,7 +568,7 @@ export default function App() {
         {/* 説明 */}
         <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
           <p className="text-sm text-blue-800">
-            <strong>💡 使い方:</strong> このアプリのURLとパスワードを仲間と共有すれば、みんなで同時に記録できます！
+            <strong>💡 使い方:</strong> このアプリのURLとパスワードを仲間と共有すれば、みんなで同時に記録できます！データはリアルタイムで同期されます。
           </p>
         </div>
       </div>
