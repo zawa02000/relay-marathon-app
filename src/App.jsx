@@ -46,8 +46,14 @@ export default function App() {
     const recordsRef = ref(database, 'records');
     const unsubscribeRecords = onValue(recordsRef, (snapshot) => {
       const data = snapshot.val();
-      if (data) {
+      console.log('Records from Firebase:', data); // デバッグ用
+      if (data && Array.isArray(data)) {
         setRecords(data);
+      } else if (data && typeof data === 'object') {
+        // オブジェクトを配列に変換
+        const recordsArray = Object.values(data);
+        console.log('Converted to array:', recordsArray); // デバッグ用
+        setRecords(recordsArray);
       } else {
         setRecords([]);
       }
@@ -57,8 +63,14 @@ export default function App() {
     const queueRef = ref(database, 'runnerQueue');
     const unsubscribeQueue = onValue(queueRef, (snapshot) => {
       const data = snapshot.val();
-      if (data) {
+      console.log('Queue from Firebase:', data); // デバッグ用
+      if (data && Array.isArray(data)) {
         setRunnerQueue(data);
+      } else if (data && typeof data === 'object') {
+        // オブジェクトを配列に変換
+        const queueArray = Object.values(data);
+        console.log('Queue converted to array:', queueArray); // デバッグ用
+        setRunnerQueue(queueArray);
       } else {
         setRunnerQueue([]);
       }
