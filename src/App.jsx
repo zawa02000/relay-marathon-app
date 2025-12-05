@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Flag, Timer, Download, UserPlus, X, ChevronUp, ChevronDown } from 'lucide-react';
+import { Play, Flag, Timer, Download, UserPlus, X, ChevronUp, ChevronDown, ArrowLeft, Plus, Trash2 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
-import { getDatabase, ref, onValue, set, get } from 'firebase/database';
+import { getDatabase, ref, onValue, set, get, remove } from 'firebase/database';
 
 // Firebase設定
 const firebaseConfig = {
@@ -19,6 +19,12 @@ const app = initializeApp(firebaseConfig);
 const database = getDatabase(app);
 
 export default function App() {
+  const [currentView, setCurrentView] = useState('login'); // 'login', 'raceList', 'main'
+  const [currentRaceId, setCurrentRaceId] = useState(null);
+  const [currentRaceName, setCurrentRaceName] = useState('');
+  const [races, setRaces] = useState({});
+  const [newRaceName, setNewRaceName] = useState('');
+  
   const [records, setRecords] = useState([]);
   const [runnerQueue, setRunnerQueue] = useState([]);
   const [newRunner, setNewRunner] = useState('');
@@ -28,61 +34,73 @@ export default function App() {
   const [password, setPassword] = useState('');
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [deleteIndex, setDeleteIndex] = useState(null);
+  const [deleteRaceId, setDeleteRaceId] = useState(null);
   const [lapCooldown, setLapCooldown] = useState(0);
 
-  // リアルタイム同期の設定
+  // パスワードの監視
   useEffect(() => {
-    // パスワードの監視
     const passwordRef = ref(database, 'password');
-    const unsubscribePassword = onValue(passwordRef, (snapshot) => {
+    const unsubscribe = onValue(passwordRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         setPassword(data);
       }
       setLoading(false);
     });
+    return () => unsubscribe();
+  }, []);
 
-    // 記録の監視
-    const recordsRef = ref(database, 'records');
+  // レース一覧の監視
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    
+    const racesRef = ref(database, 'races');
+    const unsubscribe = onValue(racesRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setRaces(data);
+      } else {
+        setRaces({});
+      }
+    });
+    return () => unsubscribe();
+  }, [isAuthenticated]);
+
+  // 選択されたレースの記録とキューの監視
+  useEffect(() => {
+    if (!currentRaceId) return;
+
+    const recordsRef = ref(database, `races/${currentRaceId}/records`);
     const unsubscribeRecords = onValue(recordsRef, (snapshot) => {
       const data = snapshot.val();
-      console.log('Records from Firebase:', data); // デバッグ用
       if (data && Array.isArray(data)) {
         setRecords(data);
       } else if (data && typeof data === 'object') {
-        // オブジェクトを配列に変換
         const recordsArray = Object.values(data);
-        console.log('Converted to array:', recordsArray); // デバッグ用
         setRecords(recordsArray);
       } else {
         setRecords([]);
       }
     });
 
-    // 走者キューの監視
-    const queueRef = ref(database, 'runnerQueue');
+    const queueRef = ref(database, `races/${currentRaceId}/runnerQueue`);
     const unsubscribeQueue = onValue(queueRef, (snapshot) => {
       const data = snapshot.val();
-      console.log('Queue from Firebase:', data); // デバッグ用
       if (data && Array.isArray(data)) {
         setRunnerQueue(data);
       } else if (data && typeof data === 'object') {
-        // オブジェクトを配列に変換
         const queueArray = Object.values(data);
-        console.log('Queue converted to array:', queueArray); // デバッグ用
         setRunnerQueue(queueArray);
       } else {
         setRunnerQueue([]);
       }
     });
 
-    // クリーンアップ
     return () => {
-      unsubscribePassword();
       unsubscribeRecords();
       unsubscribeQueue();
     };
-  }, []);
+  }, [currentRaceId]);
 
   // ラップクールダウンタイマー
   useEffect(() => {
@@ -94,7 +112,7 @@ export default function App() {
 
   const saveRecords = async (newRecords) => {
     try {
-      await set(ref(database, 'records'), newRecords);
+      await set(ref(database, `races/${currentRaceId}/records`), newRecords);
     } catch (error) {
       console.error('保存エラー:', error);
       alert('データの保存に失敗しました');
@@ -103,7 +121,7 @@ export default function App() {
 
   const saveQueue = async (newQueue) => {
     try {
-      await set(ref(database, 'runnerQueue'), newQueue);
+      await set(ref(database, `races/${currentRaceId}/runnerQueue`), newQueue);
     } catch (error) {
       console.error('保存エラー:', error);
       alert('データの保存に失敗しました');
@@ -118,6 +136,7 @@ export default function App() {
     try {
       await set(ref(database, 'password'), passwordInput);
       setIsAuthenticated(true);
+      setCurrentView('raceList');
       alert('パスワードが設定されました！このパスワードを仲間と共有してください。');
     } catch (error) {
       alert('パスワードの設定に失敗しました');
@@ -127,9 +146,61 @@ export default function App() {
   const handleLogin = () => {
     if (passwordInput === password) {
       setIsAuthenticated(true);
+      setCurrentView('raceList');
       setPasswordInput('');
     } else {
       alert('パスワードが違います');
+    }
+  };
+
+  const handleCreateRace = async () => {
+    if (!newRaceName.trim()) {
+      alert('レース名を入力してください');
+      return;
+    }
+    
+    const raceId = Date.now().toString();
+    try {
+      await set(ref(database, `races/${raceId}`), {
+        name: newRaceName,
+        createdAt: new Date().toISOString(),
+        records: [],
+        runnerQueue: []
+      });
+      setNewRaceName('');
+      alert('レースを作成しました');
+    } catch (error) {
+      alert('レースの作成に失敗しました');
+    }
+  };
+
+  const handleSelectRace = (raceId, raceName) => {
+    setCurrentRaceId(raceId);
+    setCurrentRaceName(raceName);
+    setCurrentView('main');
+  };
+
+  const handleBackToList = () => {
+    setCurrentRaceId(null);
+    setCurrentRaceName('');
+    setRecords([]);
+    setRunnerQueue([]);
+    setCurrentView('raceList');
+  };
+
+  const handleDeleteRace = (raceId) => {
+    setDeleteRaceId(raceId);
+  };
+
+  const confirmDeleteRace = async () => {
+    if (deleteRaceId) {
+      try {
+        await remove(ref(database, `races/${deleteRaceId}`));
+        setDeleteRaceId(null);
+        alert('レースを削除しました');
+      } catch (error) {
+        alert('レースの削除に失敗しました');
+      }
     }
   };
 
@@ -182,8 +253,6 @@ export default function App() {
     }
 
     const now = new Date().toISOString();
-    
-    // 既存の記録がある場合は続きから、ない場合は1から開始
     const nextLap = records.length > 0 ? records[records.length - 1].lap + 1 : 1;
     
     const newRecord = {
@@ -196,7 +265,6 @@ export default function App() {
 
     const newQueue = runnerQueue.slice(1);
     
-    console.log('Starting with record:', newRecord); // デバッグ用
     await saveRecords([...records, newRecord]);
     await saveQueue(newQueue);
   };
@@ -233,7 +301,6 @@ export default function App() {
     };
 
     updatedRecords.push(newRecord);
-    
     const newQueue = runnerQueue.slice(1);
     
     await saveRecords(updatedRecords);
@@ -297,7 +364,7 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     
     link.setAttribute('href', url);
-    link.setAttribute('download', `リレーマラソン記録_${new Date().toLocaleDateString('ja-JP')}.csv`);
+    link.setAttribute('download', `${currentRaceName}_${new Date().toLocaleDateString('ja-JP')}.csv`);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
@@ -368,13 +435,115 @@ export default function App() {
     );
   }
 
-  // メイン画面
+  // レース一覧画面
+  if (currentView === 'raceList') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+        <div className="max-w-4xl mx-auto">
+          <h1 className="text-4xl font-bold text-center text-indigo-900 mb-8 mt-4">
+            🏃 レース一覧
+          </h1>
+
+          {/* レース削除確認モーダル */}
+          {deleteRaceId !== null && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 max-w-sm mx-4">
+                <h3 className="text-lg font-bold mb-4">確認</h3>
+                <p className="mb-6">このレースを削除しますか？</p>
+                <div className="flex gap-2 justify-end">
+                  <button
+                    onClick={() => setDeleteRaceId(null)}
+                    className="px-4 py-2 bg-gray-300 rounded-lg hover:bg-gray-400"
+                  >
+                    キャンセル
+                  </button>
+                  <button
+                    onClick={confirmDeleteRace}
+                    className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
+                  >
+                    削除
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 新規レース作成 */}
+          <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+            <h2 className="text-xl font-bold text-gray-800 mb-4">新規レース作成</h2>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newRaceName}
+                onChange={(e) => setNewRaceName(e.target.value)}
+                placeholder="レース名を入力"
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                onKeyPress={(e) => e.key === 'Enter' && handleCreateRace()}
+              />
+              <button
+                onClick={handleCreateRace}
+                className="flex items-center gap-2 px-6 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition"
+              >
+                <Plus size={20} />
+                作成
+              </button>
+            </div>
+          </div>
+
+          {/* レース一覧 */}
+          <div className="bg-white rounded-lg shadow-lg p-6">
+            <h2 className="text-xl font-bold text-gray-800 mb-4">レース選択</h2>
+            {Object.keys(races).length === 0 ? (
+              <p className="text-gray-500 text-center py-8">
+                レースがありません。上記から新規作成してください。
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {Object.entries(races).map(([raceId, race]) => (
+                  <div
+                    key={raceId}
+                    className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition"
+                  >
+                    <button
+                      onClick={() => handleSelectRace(raceId, race.name)}
+                      className="flex-1 text-left font-medium text-indigo-900"
+                    >
+                      {race.name}
+                    </button>
+                    <button
+                      onClick={() => handleDeleteRace(raceId)}
+                      className="text-red-500 hover:text-red-700 p-2"
+                      title="削除"
+                    >
+                      <Trash2 size={20} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // メイン画面（記録画面）
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
       <div className="max-w-6xl mx-auto">
-        <h1 className="text-4xl font-bold text-center text-indigo-900 mb-8 mt-4">
-          🏃 記録用アプリ
-        </h1>
+        <div className="flex items-center justify-between mb-8 mt-4">
+          <button
+            onClick={handleBackToList}
+            className="flex items-center gap-2 px-4 py-2 bg-white rounded-lg shadow hover:bg-gray-50 transition"
+          >
+            <ArrowLeft size={20} />
+            レース一覧に戻る
+          </button>
+          <h1 className="text-4xl font-bold text-center text-indigo-900 flex-1">
+            🏃 {currentRaceName}
+          </h1>
+          <div className="w-40"></div>
+        </div>
 
         {/* リセット確認モーダル */}
         {showResetConfirm && (
