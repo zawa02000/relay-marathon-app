@@ -548,7 +548,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
       <div className="max-w-6xl mx-auto">
-        <div className="flex items-center justify-between mb-8 mt-4">
+        <div className="flex flex-col mb-8 mt-4">
           <button
             onClick={handleBackToList}
             className="flex items-center gap-2 px-4 py-2 bg-white rounded-lg shadow hover:bg-gray-50 transition"
@@ -556,7 +556,7 @@ export default function App() {
             <ArrowLeft size={20} />
             レース一覧に戻る
           </button>
-          <h1 className="text-4xl font-bold text-center text-indigo-900 flex-1">
+          <h1 className="text-4xl font-bold text-center text-indigo-900 mt-4">
             🏃 {currentRaceName}
           </h1>
           <div className="w-40"></div>
