@@ -556,9 +556,9 @@ export default function App() {
             <ArrowLeft size={20} />
             レース一覧に戻る
           </button>
-          <h1 className="text-4xl font-bold text-center text-indigo-900 mt-4">
+          <h2 className="text-4xl font-bold text-center text-indigo-900 mt-4">
             🏃 {currentRaceName}
-          </h1>
+          </h2>
           <div className="w-40"></div>
         </div>
 
