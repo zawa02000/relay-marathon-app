@@ -457,7 +457,7 @@ export default function App() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
         <div className="max-w-4xl mx-auto">
-          <h1 className="text-4xl font-bold text-center text-indigo-900 mb-8 mt-4">
+          <h1 className="text-2xl font-bold text-center text-indigo-900 mb-8 mt-4">
             🏃 レース一覧
           </h1>
 
@@ -556,9 +556,9 @@ export default function App() {
             <ArrowLeft size={20} />
             レース一覧に戻る
           </button>
-          <h2 className="text-4xl font-bold text-center text-indigo-900 mt-4">
+          <h1 className="text-2xl font-bold text-center text-indigo-900 mt-4">
             🏃 {currentRaceName}
-          </h2>
+          </h1>
           <div className="w-40"></div>
         </div>
 
