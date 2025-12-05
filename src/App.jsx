@@ -1,3 +1,5 @@
+
+// App.jsx（レースごとのクールダウン対応版）
 import React, { useState, useEffect } from 'react';
 import { Play, Flag, Timer, Download, UserPlus, X, ChevronUp, ChevronDown, ArrowLeft, Plus, Trash2 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
@@ -24,7 +26,6 @@ export default function App() {
   const [currentRaceName, setCurrentRaceName] = useState('');
   const [races, setRaces] = useState({});
   const [newRaceName, setNewRaceName] = useState('');
-  
   const [records, setRecords] = useState([]);
   const [runnerQueue, setRunnerQueue] = useState([]);
   const [newRunner, setNewRunner] = useState('');
@@ -35,7 +36,8 @@ export default function App() {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [deleteIndex, setDeleteIndex] = useState(null);
   const [deleteRaceId, setDeleteRaceId] = useState(null);
-  const [lapCooldown, setLapCooldown] = useState(0);
+  const [lapCooldownUntil, setLapCooldownUntil] = useState(null);
+  const [lapRemaining, setLapRemaining] = useState(0);
 
   // パスワードの監視
   useEffect(() => {
@@ -53,7 +55,6 @@ export default function App() {
   // レース一覧の監視
   useEffect(() => {
     if (!isAuthenticated) return;
-    
     const racesRef = ref(database, 'races');
     const unsubscribe = onValue(racesRef, (snapshot) => {
       const data = snapshot.val();
@@ -66,10 +67,9 @@ export default function App() {
     return () => unsubscribe();
   }, [isAuthenticated]);
 
-  // 選択されたレースの記録とキューの監視
+  // 選択されたレースの記録とキューの監視（＋クールダウン期限）
   useEffect(() => {
     if (!currentRaceId) return;
-
     const recordsRef = ref(database, `races/${currentRaceId}/records`);
     const unsubscribeRecords = onValue(recordsRef, (snapshot) => {
       const data = snapshot.val();
@@ -96,19 +96,36 @@ export default function App() {
       }
     });
 
+    // ★ クールダウン期限の購読
+    const cooldownRef = ref(database, `races/${currentRaceId}/lapCooldownUntil`);
+    const unsubscribeCooldown = onValue(cooldownRef, (snapshot) => {
+      const until = snapshot.val();
+      setLapCooldownUntil(until || null);
+    });
+
     return () => {
       unsubscribeRecords();
       unsubscribeQueue();
+      unsubscribeCooldown();
     };
   }, [currentRaceId]);
 
-  // ラップクールダウンタイマー
+  // ★ DBの期限から残り秒を計算してUI更新（500ms間隔）
   useEffect(() => {
-    if (lapCooldown > 0) {
-      const timer = setTimeout(() => setLapCooldown(lapCooldown - 1), 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [lapCooldown]);
+    const tick = () => {
+      if (!lapCooldownUntil) {
+        setLapRemaining(0);
+        return;
+      }
+      const now = Date.now();
+      const untilMs = new Date(lapCooldownUntil).getTime();
+      const diffSec = Math.max(0, Math.ceil((untilMs - now) / 1000));
+      setLapRemaining(diffSec);
+    };
+    tick();
+    const id = setInterval(tick, 500);
+    return () => clearInterval(id);
+  }, [lapCooldownUntil]);
 
   const saveRecords = async (newRecords) => {
     try {
@@ -158,14 +175,15 @@ export default function App() {
       alert('レース名を入力してください');
       return;
     }
-    
     const raceId = Date.now().toString();
     try {
       await set(ref(database, `races/${raceId}`), {
         name: newRaceName,
         createdAt: new Date().toISOString(),
         records: [],
-        runnerQueue: []
+        runnerQueue: [],
+        // ★ 新規レースはクールダウンなし
+        lapCooldownUntil: null,
       });
       setNewRaceName('');
       alert('レースを作成しました');
@@ -185,6 +203,8 @@ export default function App() {
     setCurrentRaceName('');
     setRecords([]);
     setRunnerQueue([]);
+    setLapCooldownUntil(null);
+    setLapRemaining(0);
     setCurrentView('raceList');
   };
 
@@ -251,10 +271,8 @@ export default function App() {
       alert('走者を追加してください');
       return;
     }
-
     const now = new Date().toISOString();
     const nextLap = records.length > 0 ? records[records.length - 1].lap + 1 : 1;
-    
     const newRecord = {
       lap: nextLap,
       runner: runnerQueue[0],
@@ -262,16 +280,18 @@ export default function App() {
       endTime: null,
       lapTime: ''
     };
-
     const newQueue = runnerQueue.slice(1);
-    
     await saveRecords([...records, newRecord]);
     await saveQueue(newQueue);
   };
 
   const handleLap = async () => {
-    if (lapCooldown > 0) {
-      alert(`あと${lapCooldown}秒待ってください`);
+    // ★ レース単位のクールダウン判定（DB上の期限を参照）
+    if (lapCooldownUntil && new Date() < new Date(lapCooldownUntil)) {
+      const nowMs = Date.now();
+      const untilMs = new Date(lapCooldownUntil).getTime();
+      const remain = Math.max(0, Math.ceil((untilMs - nowMs) / 1000));
+      alert(`あと${remain}秒待ってください`);
       return;
     }
 
@@ -279,7 +299,6 @@ export default function App() {
       alert('次の走者を追加してください');
       return;
     }
-
     if (records.length === 0) {
       alert('まず「スタート」ボタンを押してください');
       return;
@@ -288,7 +307,6 @@ export default function App() {
     const now = new Date().toISOString();
     const updatedRecords = [...records];
     const lastRecord = updatedRecords[updatedRecords.length - 1];
-
     lastRecord.endTime = now;
     lastRecord.lapTime = calculateLapTime(lastRecord.startTime, now);
 
@@ -299,14 +317,15 @@ export default function App() {
       endTime: null,
       lapTime: ''
     };
-
     updatedRecords.push(newRecord);
     const newQueue = runnerQueue.slice(1);
-    
+
     await saveRecords(updatedRecords);
     await saveQueue(newQueue);
-    
-    setLapCooldown(10);
+
+    // ★ レースのクールダウン期限をDBに記録（10秒）
+    const until = new Date(Date.now() + 10 * 1000).toISOString();
+    await set(ref(database, `races/${currentRaceId}/lapCooldownUntil`), until);
   };
 
   const handleGoal = async () => {
@@ -314,15 +333,14 @@ export default function App() {
       alert('記録がありません');
       return;
     }
-
     const now = new Date().toISOString();
     const updatedRecords = [...records];
     const lastRecord = updatedRecords[updatedRecords.length - 1];
-
     lastRecord.endTime = now;
     lastRecord.lapTime = calculateLapTime(lastRecord.startTime, now);
-
     await saveRecords(updatedRecords);
+    // ★ ゴール後はクールダウン解除（念のため）
+    await set(ref(database, `races/${currentRaceId}/lapCooldownUntil`), null);
   };
 
   const handleDelete = (index) => {
@@ -343,6 +361,8 @@ export default function App() {
 
   const confirmReset = async () => {
     await saveRecords([]);
+    // ★ リセット時もクールダウン解除
+    await set(ref(database, `races/${currentRaceId}/lapCooldownUntil`), null);
     setShowResetConfirm(false);
   };
 
@@ -351,18 +371,15 @@ export default function App() {
       alert('エクスポートする記録がありません');
       return;
     }
-
     const headers = ['周回,走者名,スタート時刻,ゴール時刻,ラップタイム'];
-    const rows = records.map(r => 
+    const rows = records.map(r =>
       `${r.lap},${r.runner},${formatTime(r.startTime)},${formatTime(r.endTime)},${r.lapTime}`
     );
     const csv = headers.concat(rows).join('\n');
-    
     const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
     const blob = new Blob([bom, csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
-    
     link.setAttribute('href', url);
     link.setAttribute('download', `${currentRaceName}_${new Date().toLocaleDateString('ja-JP')}.csv`);
     link.style.visibility = 'hidden';
@@ -613,7 +630,7 @@ export default function App() {
               追加
             </button>
           </div>
-          
+
           <div className="flex flex-wrap gap-2">
             {runnerQueue.length === 0 ? (
               <p className="text-gray-500 text-sm">走者を追加してください</p>
@@ -667,25 +684,25 @@ export default function App() {
                 <Play size={20} />
                 {records.length > 0 && records[records.length - 1]?.endTime ? '再スタート' : 'スタート'}
               </button>
-              
+
               <button
                 onClick={handleLap}
                 disabled={
-                  records.length === 0 || 
-                  runnerQueue.length === 0 || 
-                  (records.length > 0 && records[records.length - 1] && records[records.length - 1].endTime !== null && records[records.length - 1].endTime !== undefined) || 
-                  lapCooldown > 0
+                  records.length === 0 ||
+                  runnerQueue.length === 0 ||
+                  (records.length > 0 && records[records.length - 1] && records[records.length - 1].endTime !== null && records[records.length - 1].endTime !== undefined) ||
+                  (lapCooldownUntil && new Date() < new Date(lapCooldownUntil))
                 }
                 className="flex items-center gap-2 px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition"
               >
                 <Timer size={20} />
-                {lapCooldown > 0 ? `ラップ (${lapCooldown}秒)` : 'ラップ'}
+                {lapRemaining > 0 ? `ラップ (${lapRemaining}秒)` : 'ラップ'}
               </button>
-              
+
               <button
                 onClick={handleGoal}
                 disabled={
-                  records.length === 0 || 
+                  records.length === 0 ||
                   (records.length > 0 && records[records.length - 1] && records[records.length - 1].endTime !== null && records[records.length - 1].endTime !== undefined)
                 }
                 className="flex items-center gap-2 px-6 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition"
@@ -694,7 +711,7 @@ export default function App() {
                 ゴール
               </button>
             </div>
-            
+
             <div className="flex gap-2">
               <button
                 onClick={handleExportCSV}
@@ -704,7 +721,6 @@ export default function App() {
                 <Download size={20} />
                 CSV出力
               </button>
-              
               <button
                 onClick={handleReset}
                 className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition"
@@ -771,4 +787,4 @@ export default function App() {
       </div>
     </div>
   );
-}
+}  
