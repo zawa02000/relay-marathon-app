@@ -182,8 +182,12 @@ export default function App() {
     }
 
     const now = new Date().toISOString();
+    
+    // 既存の記録がある場合は続きから、ない場合は1から開始
+    const nextLap = records.length > 0 ? records[records.length - 1].lap + 1 : 1;
+    
     const newRecord = {
-      lap: 1,
+      lap: nextLap,
       runner: runnerQueue[0],
       startTime: now,
       endTime: null,
@@ -193,7 +197,7 @@ export default function App() {
     const newQueue = runnerQueue.slice(1);
     
     console.log('Starting with record:', newRecord); // デバッグ用
-    await saveRecords([newRecord]);
+    await saveRecords([...records, newRecord]);
     await saveQueue(newQueue);
   };
 
@@ -485,11 +489,14 @@ export default function App() {
             <div className="flex gap-2">
               <button
                 onClick={handleStart}
-                disabled={records.length > 0 || runnerQueue.length === 0}
+                disabled={
+                  runnerQueue.length === 0 ||
+                  (records.length > 0 && records[records.length - 1] && !records[records.length - 1].endTime)
+                }
                 className="flex items-center gap-2 px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition"
               >
                 <Play size={20} />
-                スタート
+                {records.length > 0 && records[records.length - 1]?.endTime ? '再スタート' : 'スタート'}
               </button>
               
               <button
@@ -589,7 +596,7 @@ export default function App() {
         {/* 説明 */}
         <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
           <p className="text-sm text-blue-800">
-            <strong>💡 使い方:</strong> このアプリのURLとパスワードを仲間と共有すれば、みんなで同時に記録できます！データはリアルタイムで同期されます。
+            <strong>💡 使い方:</strong> みんなで同時に記録できます！データはリアルタイムで同期されます。名前を入力して追加ボタンを押すとランナー予約されます。
           </p>
         </div>
       </div>
